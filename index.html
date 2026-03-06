@@ -67,7 +67,6 @@ body {
   padding: 24px;
 }
 
-/* 入力グループ */
 .field {
   margin-bottom: 16px;
   position: relative;
@@ -126,7 +125,6 @@ body {
   box-shadow: 0 0 0 3px rgba(239,68,68,0.1);
 }
 
-/* エラー */
 .error-toast {
   background: #fef2f2;
   border: 1px solid #fecaca;
@@ -147,7 +145,6 @@ body {
   75% { transform: translateX(6px); }
 }
 
-/* 結果エリア */
 .results {
   border-top: 2px solid var(--border);
   padding-top: 20px;
@@ -160,7 +157,7 @@ body {
 
 .results.visible {
   opacity: 1;
-  max-height: 600px;
+  max-height: 800px;
 }
 
 .section-label {
@@ -206,7 +203,6 @@ body {
   margin: 14px 0;
 }
 
-/* バー表示 */
 .bar-wrap {
   margin-top: 8px;
   margin-bottom: 4px;
@@ -253,7 +249,7 @@ body {
 <div class="card">
 
   <div class="card-header">
-    <h1>💰 資金移動計算ツール</h1>
+    <h1>&#128176; 資金移動計算ツール</h1>
     <p>入力するとリアルタイムで自動計算されます</p>
   </div>
 
@@ -262,7 +258,7 @@ body {
     <div class="field">
       <label>現在の資金（残高）</label>
       <div class="input-wrap">
-        <span class="prefix">¥</span>
+        <span class="prefix">&#165;</span>
         <input id="inFund" type="text" inputmode="decimal" placeholder="0" autocomplete="off">
       </div>
     </div>
@@ -270,15 +266,15 @@ body {
     <div class="field">
       <label>現在のクレジット</label>
       <div class="input-wrap">
-        <span class="prefix">¥</span>
+        <span class="prefix">&#165;</span>
         <input id="inCredit" type="text" inputmode="decimal" placeholder="0" autocomplete="off">
       </div>
     </div>
 
     <div class="field">
-      <label>移動金額</label>
+      <label>移動資金</label>
       <div class="input-wrap">
-        <span class="prefix">¥</span>
+        <span class="prefix">&#165;</span>
         <input id="inMove" type="text" inputmode="decimal" placeholder="0" autocomplete="off">
       </div>
     </div>
@@ -287,7 +283,7 @@ body {
 
     <div id="results" class="results">
 
-      <div class="section-label">現在の状況</div>
+      <div class="section-label">現在の口座</div>
 
       <div class="row">
         <span class="lbl">資金合計</span>
@@ -302,15 +298,13 @@ body {
       <div class="bar-wrap">
         <div class="bar-bg"><div class="bar-fill" id="oBar" style="width:0%"></div></div>
         <div class="bar-labels">
-          <span>資金</span>
-          <span>クレジット</span>
+          <span>0%</span>
+          <span id="oBarLabel">0%</span>
         </div>
       </div>
 
-      <div class="divider"></div>
-
       <div class="row">
-        <span class="lbl">クレジット削除額</span>
+        <span class="lbl">クレジット移動（消滅）額</span>
         <span class="val red" id="oCreditMove">-</span>
       </div>
 
@@ -331,11 +325,19 @@ body {
       </div>
 
       <div class="divider"></div>
-      <div class="section-label">移動先口座</div>
+      <div class="section-label">移動先の口座</div>
 
       <div class="row">
-        <span class="lbl">移動先に入金される額</span>
-        <span class="val green" id="oMoveAccount">-</span>
+        <span class="lbl">資金</span>
+        <span class="val green" id="oMoveFund">-</span>
+      </div>
+      <div class="row">
+        <span class="lbl">クレジット</span>
+        <span class="val green" id="oMoveCredit">-</span>
+      </div>
+      <div class="row">
+        <span class="lbl">合計</span>
+        <span class="val green" id="oMoveTotal">-</span>
       </div>
 
     </div>
@@ -349,90 +351,86 @@ body {
 
 <script>
 
-/* ── ユーティリティ ── */
-
-// カンマ付き表示
 function fmt(n) {
   if (n === null || n === undefined || isNaN(n)) return '-';
-  return '¥' + Math.floor(n).toLocaleString('ja-JP');
+  return '\u00a5' + Math.floor(n).toLocaleString('ja-JP');
 }
 
-// 入力文字列 → 数値（カンマ・¥除去）
 function parse(s) {
   if (!s) return NaN;
-  return parseFloat(s.replace(/[¥,\s]/g, ''));
+  return parseFloat(s.replace(/[\u00a5,\s]/g, ''));
 }
 
-// 入力欄に自動カンマ挿入
 function autoFormat(el) {
-  const raw = el.value.replace(/[^0-9.]/g, '');
+  var pos = el.selectionStart;
+  var oldLen = el.value.length;
+  var raw = el.value.replace(/[^0-9.]/g, '');
   if (!raw) { el.value = ''; return; }
-  const num = parseFloat(raw);
+  var num = parseFloat(raw);
   if (isNaN(num)) return;
-  // 小数点入力中はそのまま
   if (raw.endsWith('.')) return;
-  const decimals = raw.includes('.') ? raw.split('.')[1].length : 0;
+  var decimals = raw.indexOf('.') !== -1 ? raw.split('.')[1].length : 0;
   el.value = num.toLocaleString('ja-JP', {
     minimumFractionDigits: decimals,
     maximumFractionDigits: decimals
   });
+  var newLen = el.value.length;
+  var newPos = pos + (newLen - oldLen);
+  if (newPos < 0) newPos = 0;
+  el.setSelectionRange(newPos, newPos);
 }
-
-/* ── メイン計算 ── */
 
 function calc() {
 
-  const elFund   = document.getElementById('inFund');
-  const elCredit = document.getElementById('inCredit');
-  const elMove   = document.getElementById('inMove');
-  const elError  = document.getElementById('error');
-  const elResult = document.getElementById('results');
+  var elFund   = document.getElementById('inFund');
+  var elCredit = document.getElementById('inCredit');
+  var elMove   = document.getElementById('inMove');
+  var elError  = document.getElementById('error');
+  var elResult = document.getElementById('results');
 
-  // 自動カンマフォーマット
   autoFormat(elFund);
   autoFormat(elCredit);
   autoFormat(elMove);
 
-  const rawF = elFund.value.trim();
-  const rawC = elCredit.value.trim();
-  const rawM = elMove.value.trim();
+  var rawF = elFund.value.trim();
+  var rawC = elCredit.value.trim();
+  var rawM = elMove.value.trim();
 
-  // 全部空 → 非表示
   if (!rawF && !rawC && !rawM) {
     elResult.classList.remove('visible');
     elError.style.display = 'none';
-    [elFund, elCredit, elMove].forEach(e => e.classList.remove('invalid'));
+    elFund.classList.remove('invalid');
+    elCredit.classList.remove('invalid');
+    elMove.classList.remove('invalid');
     return;
   }
 
-  const fund   = rawF ? parse(rawF) : 0;
-  const credit = rawC ? parse(rawC) : 0;
-  const move   = rawM ? parse(rawM) : 0;
+  var fund   = rawF ? parse(rawF) : 0;
+  var credit = rawC ? parse(rawC) : 0;
+  var move   = rawM ? parse(rawM) : 0;
 
-  // バリデーション
-  let err = [];
+  var err = [];
   elFund.classList.remove('invalid');
   elCredit.classList.remove('invalid');
   elMove.classList.remove('invalid');
 
   if (rawF && isNaN(fund))   { err.push('資金が数値ではありません'); elFund.classList.add('invalid'); }
   if (rawC && isNaN(credit)) { err.push('クレジットが数値ではありません'); elCredit.classList.add('invalid'); }
-  if (rawM && isNaN(move))   { err.push('移動金額が数値ではありません'); elMove.classList.add('invalid'); }
+  if (rawM && isNaN(move))   { err.push('移動資金が数値ではありません'); elMove.classList.add('invalid'); }
 
   if (!err.length && move < 0) {
-    err.push('移動金額は0以上にしてください');
+    err.push('移動資金は0以上にしてください');
     elMove.classList.add('invalid');
   }
 
-  const total = (isNaN(fund) ? 0 : fund) + (isNaN(credit) ? 0 : credit);
-
-  if (!err.length && move > total) {
-    err.push('移動金額が資金合計を超えています');
-    elMove.classList.add('invalid');
+  if (!err.length && fund <= 0 && move > 0) {
+    err.push('現在の資金が0以下のため計算できません');
+    elFund.classList.add('invalid');
   }
 
-  if (!err.length && total <= 0 && move > 0) {
-    err.push('資金合計が0以下のため移動できません');
+  if (!err.length && move > fund) {
+    err.push('移動資金が現在の資金を超えています');
+    elMove.classList.add('invalid');
   }
 
   if (err.length) {
@@ -445,29 +443,45 @@ function calc() {
   elError.style.display = 'none';
 
   /* ── 計算ロジック ── */
-  const ratio      = total > 0 ? credit / total : 0;
-  const creditMove = move * ratio;
-  const fundMove   = move - creditMove;
 
-  const afterFund   = fund - fundMove;
-  const afterCredit = credit - creditMove;
-  const afterTotal  = afterFund + afterCredit;
-  const moveAccount = fundMove;
+  // 資金合計 = 現在の資金 + 現在のクレジット
+  var total = fund + credit;
+
+  // クレジット割合 = 移動資金 / 現在の資金
+  var ratio = fund > 0 ? move / fund : 0;
+
+  // クレジット移動（消滅）額 = 現在のクレジット × クレジット割合
+  var creditMove = credit * ratio;
+
+  // 移動後の現在の口座
+  var afterFund   = fund - move;
+  var afterCredit = credit - creditMove;
+  var afterTotal  = afterFund + afterCredit;
+
+  // 移動先の口座
+  var moveFund   = move;
+  var moveCredit = creditMove;
+  var moveTotal  = moveFund + moveCredit;
 
   /* ── 結果反映 ── */
   document.getElementById('oTotal').textContent       = fmt(total);
   document.getElementById('oRatio').textContent       = (ratio * 100).toFixed(1) + '%';
-  document.getElementById('oBar').style.width         = ((1 - ratio) * 100).toFixed(1) + '%';
-  document.getElementById('oCreditMove').textContent  = '−' + fmt(creditMove).replace('¥','¥');
+
+  var barWidth = ratio > 1 ? 100 : ratio * 100;
+  document.getElementById('oBar').style.width         = barWidth.toFixed(1) + '%';
+  document.getElementById('oBarLabel').textContent    = (ratio * 100).toFixed(1) + '%';
+
+  document.getElementById('oCreditMove').textContent  = fmt(creditMove);
   document.getElementById('oAfterFund').textContent   = fmt(afterFund);
   document.getElementById('oAfterCredit').textContent = fmt(afterCredit);
   document.getElementById('oAfterTotal').textContent  = fmt(afterTotal);
-  document.getElementById('oMoveAccount').textContent = fmt(moveAccount);
+  document.getElementById('oMoveFund').textContent    = fmt(moveFund);
+  document.getElementById('oMoveCredit').textContent  = fmt(moveCredit);
+  document.getElementById('oMoveTotal').textContent   = fmt(moveTotal);
 
   elResult.classList.add('visible');
 }
 
-/* ── イベント登録 ── */
 document.querySelectorAll('input').forEach(function(el) {
   el.addEventListener('input', calc);
 });
